@@ -6,14 +6,14 @@ readme = "README.md"
 authors = [
     { name = "mobilemutex" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = [
     "libzim>=3.7.0",
-    "mcp[cli]==1.13.0",
+    "fastmcp>=2.13.0",
+    "pydantic>=2.12.0",
 ]
 
-[project.scripts]
-zim-mcp = "zim_mcp.server:main"
+
 
 [build-system]
 requires = ["hatchling"]
