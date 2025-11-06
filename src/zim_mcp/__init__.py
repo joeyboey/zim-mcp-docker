@@ -13,7 +13,7 @@ __description__ = "MCP server providing offline search capabilities through ZIM 
 from .config import ZimServerConfig, load_config
 
 # Data Models
-from .models import (
+from zim_mcp.models import (
     ZimFileInfo,
     ZimMetadata,
     CacheInfo,
@@ -23,35 +23,25 @@ from .models import (
     SearchResult,
     SearchPagination,
     SearchResponse,
-    ExtractedContent,
-    SearchAndExtractResponse,
-    BrowsedEntry,
-    BrowseResponse,
     RandomEntry,
     RandomEntriesResponse,
     ListZimFilesResponse,
 )
 
 # Core Components
-from .zim_manager import ZimManager, ZimManagerFileInfo
-from .search_engine import SearchEngine, SearchEngineResult
-from .content_extractor import ContentExtractor, ExtractedContentInfo
-from .file_discovery import FileDiscovery
+from zim_mcp.zim_manager import ZimManager, ZimManagerFileInfo
+from zim_mcp.search_engine import SearchEngine, SearchEngineResult
+from zim_mcp.content_extractor import ContentExtractor, ExtractedContentInfo
 
 # Utilities
-from .utils import (
+from zim_mcp.utils import (
     setup_logging,
     timing_decorator,
     sanitize_filename,
     validate_zim_file_path,
     format_file_size,
-    truncate_text,
-    clean_html_content,
-    generate_cache_key,
-    safe_get_dict_value,
     LRUCache,
     validate_search_query,
-    extract_text_preview,
 )
 
 __all__ = [
@@ -71,10 +61,6 @@ __all__ = [
     "SearchResult",
     "SearchPagination",
     "SearchResponse",
-    "ExtractedContent",
-    "SearchAndExtractResponse",
-    "BrowsedEntry",
-    "BrowseResponse",
     "RandomEntry",
     "RandomEntriesResponse",
     "ListZimFilesResponse",
@@ -85,18 +71,12 @@ __all__ = [
     "SearchEngineResult",
     "ContentExtractor",
     "ExtractedContentInfo",
-    "FileDiscovery",
     # Utilities
     "setup_logging",
     "timing_decorator",
     "sanitize_filename",
     "validate_zim_file_path",
     "format_file_size",
-    "truncate_text",
-    "clean_html_content",
-    "generate_cache_key",
-    "safe_get_dict_value",
     "LRUCache",
     "validate_search_query",
-    "extract_text_preview",
 ]

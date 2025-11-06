@@ -11,9 +11,7 @@ from zim_mcp import (
     ZimManager,
     SearchEngine,
     ContentExtractor,
-    FileDiscovery,
     setup_logging,
-    clean_html_content,
     ZimFileInfo,
     ZimMetadata,
     CacheInfo,
@@ -23,10 +21,6 @@ from zim_mcp import (
     SearchResult,
     SearchPagination,
     SearchResponse,
-    ExtractedContent,
-    SearchAndExtractResponse,
-    BrowsedEntry,
-    BrowseResponse,
     RandomEntry,
     RandomEntriesResponse,
     ListZimFilesResponse,
@@ -46,9 +40,6 @@ search_engine = SearchEngine(config, zim_manager)
 
 # Initialize content extractor
 content_extractor = ContentExtractor(config, zim_manager)
-
-# Initialize file discovery
-file_discovery = FileDiscovery(config)
 
 # Discover ZIM files on startup
 logger.info("ZIM files directory: %s", config.zim_files_directory)
@@ -94,17 +85,6 @@ knowledge bases locally.
 • Article and media counts
 • Language and creator information
 
-**search_and_extract_content** - Combined search + extract in one call
-• One-shot operation for quick research
-• Returns search results with full content included
-• Faster than separate search + read operations
-• Ideal for "give me info about X" queries
-
-**browse_zim_entries** - Pattern-based discovery
-• Browse by path or title patterns
-• Explore file structure and organization
-• Useful for discovering related content
-
 **get_random_entries** - Serendipitous discovery
 • Get random articles for exploration
 • Great for "tell me something interesting" queries
@@ -120,14 +100,10 @@ knowledge bases locally.
 
 🎯 **TYPICAL WORKFLOWS**:
 
-**Research Workflow** (most common):
+**Research Workflow** (recommended):
 1. list_zim_files() → See available knowledge bases
 2. search_zim_files(query="topic", max_results=10) → Find relevant articles
 3. read_zim_entry(zim_file="...", entry_path=result.path) → Read full content
-
-**Quick Answer Workflow**:
-1. search_and_extract_content(query="question", max_results=3)
-   → Get search results + content in one call
 
 **Exploration Workflow**:
 1. get_random_entries(count=10) → Discover interesting topics
@@ -137,16 +113,19 @@ knowledge bases locally.
 1. list_zim_files() → Identify the right knowledge base
 2. search_zim_files(query="specific topic", zim_files=["specific_file.zim"])
    → Search only relevant file
-3. browse_zim_entries(zim_file="...", title_pattern="pattern")
-   → Explore related entries
+3. read_zim_entry() → Extract full content
 
 ⚠️ **IMPORTANT NOTES**:
 • ZIM files can be very large (Wikipedia is 90GB+) - be patient with searches
 • Content truncation is automatic to prevent token overflow
-• Search results are ranked by relevance
 • Use pagination (start_offset) for browsing large result sets
-• HTML content is automatically cleaned in 'text' format
 • Entry paths from search results can be used directly in read_zim_entry
+• Search previews and relevance scores may not be available (limitation of ZIM format)
+
+⚠️ **CURRENT LIMITATIONS**:
+• HTML to text conversion is work-in-progress - content may contain markup
+• Search result previews are not yet implemented
+• Relevance scores may show as 0.0
 
 🚀 **PERFORMANCE TIPS**:
 • Results are cached - repeated searches are faster
@@ -158,12 +137,22 @@ knowledge bases locally.
 
 
 @mcp.tool()
-def list_zim_files() -> ListZimFilesResponse:
+async def list_zim_files(
+    ctx: Context,
+) -> ListZimFilesResponse:
     """
     List all available ZIM files in the configured directory.
 
+    Discovers all ZIM files and returns comprehensive metadata including
+    title, description, size, article count, language, and search capabilities.
+    Use this as the first step to understand what knowledge bases are available.
+
+    Args:
+        ctx: Request context
+
     Returns:
-        Dictionary containing list of ZIM files with metadata
+        ListZimFilesResponse: Contains status, count, and list of ZIM files
+        with full metadata (title, size, article count, language, etc.)
     """
     try:
         logger.info("Listing ZIM files")
@@ -196,19 +185,34 @@ def list_zim_files() -> ListZimFilesResponse:
 
     except (RuntimeError, OSError, ValueError) as e:
         logger.error("Error listing ZIM files: %s", e)
-        return ListZimFilesResponse(status="error", count=0, files=[])
+        raise ToolError(f"Failed to list ZIM files: {str(e)}") from e
 
 
 @mcp.tool()
-def get_zim_metadata(zim_file: str) -> ZimFileMetadataResponse:
+async def get_zim_metadata(
+    ctx: Context,
+    zim_file: Annotated[
+        str,
+        Field(
+            description="Name or filename of the ZIM file to get metadata for",
+            examples=["wikipedia_en_all_2023.zim", "wiktionary_en.zim"],
+        ),
+    ],
+) -> ZimFileMetadataResponse:
     """
     Get detailed metadata about a specific ZIM file.
 
+    Retrieves comprehensive information including title, description, UUID,
+    article/media counts, language, creator, and indexing capabilities.
+    Useful for understanding the content and capabilities of a ZIM file
+    before searching or browsing.
+
     Args:
-        zim_file: Name or path of the ZIM file
+        ctx: Request context
+        zim_file: Name or filename of the ZIM file
 
     Returns:
-        Dictionary containing detailed ZIM file metadata
+        ZimFileMetadataResponse: Contains status, full metadata, and cache info
     """
     try:
         logger.info("Getting metadata for ZIM file: %s", zim_file)
@@ -217,25 +221,7 @@ def get_zim_metadata(zim_file: str) -> ZimFileMetadataResponse:
         file_info = zim_manager.get_zim_file_info(zim_file)
 
         if file_info is None:
-            return ZimFileMetadataResponse(
-                status="error",
-                metadata=ZimMetadata(
-                    filename="",
-                    title="",
-                    description="",
-                    size=0,
-                    size_formatted="",
-                    article_count=0,
-                    media_count=0,
-                    language="",
-                    creator="",
-                    date="",
-                    has_fulltext_index=False,
-                    has_title_index=False,
-                    uuid="",
-                ),
-                cache_info=CacheInfo(is_cached=False),
-            )
+            raise ToolError(f"ZIM file not found: {zim_file}")
 
         return ZimFileMetadataResponse(
             status="success",
@@ -261,100 +247,92 @@ def get_zim_metadata(zim_file: str) -> ZimFileMetadataResponse:
 
     except (ValueError, RuntimeError, OSError) as e:
         logger.error("Error getting ZIM metadata for %s: %s", zim_file, e)
-        return ZimFileMetadataResponse(
-            status="error",
-            metadata=ZimMetadata(
-                filename="",
-                title="",
-                description="",
-                size=0,
-                size_formatted="",
-                article_count=0,
-                media_count=0,
-                language="",
-                creator="",
-                date="",
-                has_fulltext_index=False,
-                has_title_index=False,
-                uuid="",
-            ),
-            cache_info=CacheInfo(is_cached=False),
-        )
+        raise ToolError(f"Failed to get metadata for '{zim_file}': {str(e)}") from e
 
 
 @mcp.tool()
-def read_zim_entry(
-    zim_file: str, entry_path: str, output_format: str = "text"
+async def read_zim_entry(
+    ctx: Context,
+    zim_file: Annotated[
+        str,
+        Field(
+            description="Name or filename of the ZIM file containing the entry",
+            examples=["wikipedia_en_all_2023.zim", "wiktionary_en.zim"],
+        ),
+    ],
+    entry_path: Annotated[
+        str,
+        Field(
+            description="Path to the entry within the ZIM file (from search results)",
+            examples=[
+                "Artificial_intelligence",
+                "Quantum_mechanics",
+                "Machine_learning",
+            ],
+        ),
+    ],
 ) -> ZimEntryResponse:
     """
-    Read specific entry content from a ZIM file.
+    Read complete content of a specific entry from a ZIM file.
+
+    Extracts article content from ZIM files. Currently returns HTML format.
+
+    TODO: Implement markitdown for clean markdown conversion
+    TODO: Add proper content formatting options
 
     Args:
-        zim_file: Name or path of the ZIM file
-        entry_path: Path to the entry in the ZIM file
-        output_format: Output format (text, html, raw)
+        ctx: Request context
+        zim_file: Name of the ZIM file to read from
+        entry_path: Path to the entry (use paths from search_zim_files results)
 
     Returns:
-        Dictionary containing entry content and metadata
+        ZimEntryResponse: Contains status and entry with title, content (HTML),
+        length, and redirect information
+
+    Examples:
+        >>> # Read article content
+        >>> entry = await read_zim_entry(
+        >>>     ctx,
+        >>>     zim_file="wikipedia_en_all_2023.zim",
+        >>>     entry_path="Machine_learning"
+        >>> )
+        >>> print(f"Title: {entry.entry.title}")
+        >>> print(f"Content length: {entry.entry.content_length}")
+
+        >>> # Use with search results
+        >>> search_results = await search_zim_files(ctx, query="quantum physics")
+        >>> first_result = search_results.results[0]
+        >>> content = await read_zim_entry(ctx, first_result.zim_file, first_result.path)
     """
     try:
         logger.info("Reading entry %s from %s", entry_path, zim_file)
-
-        # Validate format
-        if output_format not in ["text", "html", "raw"]:
-            return ZimEntryResponse(
-                status="error",
-                entry=ZimEntryContent(
-                    path="",
-                    title="",
-                    content="",
-                    content_length=0,
-                    format="",
-                    is_redirect=False,
-                ),
-            )
 
         # Get entry
         entry = zim_manager.get_entry_by_path(zim_file, entry_path)
 
         if entry is None:
-            return ZimEntryResponse(
-                status="error",
-                entry=ZimEntryContent(
-                    path="",
-                    title="",
-                    content="",
-                    content_length=0,
-                    format="",
-                    is_redirect=False,
-                ),
-            )
+            raise ToolError(f"Entry not found: {entry_path} in {zim_file}")
 
         # Get content
         item = entry.get_item()
         content_bytes = bytes(item.content)
 
-        # Convert content based on format
-        if output_format == "raw":
-            # Return raw bytes as hex
-            content = content_bytes.hex()
-        else:
-            # Decode as text
+        # Decode as text
+        # TODO: Replace with markitdown conversion for clean markdown
+        try:
+            content = content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
             try:
-                content = content_bytes.decode("utf-8")
+                content = content_bytes.decode("latin-1")
             except UnicodeDecodeError:
-                try:
-                    content = content_bytes.decode("latin-1")
-                except UnicodeDecodeError:
-                    content = str(content_bytes)
-
-            # Clean HTML if text format requested
-            if output_format == "text" and content:
-                content = clean_html_content(content)
+                content = content_bytes.decode("utf-8", errors="replace")
 
         # Truncate if too long
         if len(content) > config.max_content_length:
-            content = content[: config.max_content_length] + "... [truncated]"
+            content = (
+                content[: config.max_content_length]
+                + "\n\n... [Content truncated at configured limit] ..."
+            )
 
         return ZimEntryResponse(
             status="success",
@@ -363,70 +341,94 @@ def read_zim_entry(
                 title=entry.title,
                 content=content,
                 content_length=len(content_bytes),
-                format=output_format,
+                format="html",  # TODO: Change to "markdown" when markitdown integrated
                 is_redirect=entry.is_redirect,
             ),
         )
 
     except (ValueError, RuntimeError, OSError, UnicodeDecodeError) as e:
         logger.error("Error reading entry %s from %s: %s", entry_path, zim_file, e)
-        return ZimEntryResponse(
-            status="error",
-            entry=ZimEntryContent(
-                path="",
-                title="",
-                content="",
-                content_length=0,
-                format="",
-                is_redirect=False,
-            ),
-        )
+        raise ToolError(
+            f"Failed to read entry '{entry_path}' from '{zim_file}': {str(e)}"
+        ) from e
 
 
 @mcp.tool()
-def search_zim_files(
-    query: str,
-    zim_files: Optional[List[str]] = None,
-    max_results: int = 20,
-    start_offset: int = 0,
+async def search_zim_files(
+    ctx: Context,
+    query: Annotated[
+        str,
+        Field(
+            description="Search query - supports natural language or keywords for full-text search",
+            examples=[
+                "artificial intelligence",
+                "quantum physics",
+                "Albert Einstein",
+                "machine learning",
+            ],
+            min_length=1,
+            max_length=1000,
+        ),
+    ],
+    zim_files: Annotated[
+        Optional[List[str]],
+        Field(
+            description="Optional list of specific ZIM files to search. If not provided, searches all available files",
+            examples=[
+                ["wikipedia_en_all_2023.zim"],
+                ["wiktionary_en.zim", "wikiquote_en.zim"],
+                None,
+            ],
+        ),
+    ] = None,
+    max_results: Annotated[
+        int,
+        Field(
+            description="Maximum number of search results to return (prevents overwhelming responses)",
+            ge=1,
+            le=100,
+            examples=[10, 20, 50],
+        ),
+    ] = 20,
+    start_offset: Annotated[
+        int,
+        Field(
+            description="Pagination offset - starting position for results (0-based index)",
+            ge=0,
+            examples=[0, 20, 40, 60],
+        ),
+    ] = 0,
 ) -> SearchResponse:
     """
-    Search for content across one or multiple ZIM files.
+    Search for content across one or multiple ZIM files with full-text indexing.
+
+    Performs full-text search across millions of articles, returning ranked
+    results with titles, paths, relevance scores, and content previews.
+    Results are ranked by relevance and support pagination for large result sets.
 
     Args:
-        query: Search query string
-        zim_files: Optional list of specific ZIM files to search (default: all)
-        max_results: Maximum number of results (default: 20)
+        ctx: Request context
+        query: Search query string (natural language or keywords)
+        zim_files: Optional list of specific ZIM files (default: search all)
+        max_results: Maximum results to return (1-100, default: 20)
         start_offset: Pagination offset (default: 0)
 
     Returns:
-        Dictionary containing search results with titles, paths, and relevance scores
+        SearchResponse: Contains status, query, count, results list, and
+        pagination info. Each result includes zim_file, path, title, score,
+        preview, and redirect status.
     """
     try:
         logger.info("Searching ZIM files for: %s", query)
 
         # Validate parameters
         if max_results <= 0 or max_results > config.max_search_results:
-            return SearchResponse(
-                status="error",
-                query=query,
-                count=0,
-                results=[],
-                pagination=SearchPagination(
-                    start_offset=start_offset, max_results=max_results, has_more=False
-                ),
+            raise ToolError(
+                f"Invalid max_results: {max_results}. Must be between 1 and {config.max_search_results}"
             )
 
         if start_offset < 0:
-            return SearchResponse(
-                status="error",
-                query=query,
-                count=0,
-                results=[],
-                pagination=SearchPagination(
-                    start_offset=start_offset, max_results=max_results, has_more=False
-                ),
-            )
+            raise ToolError(f"Invalid start_offset: {start_offset}. Must be >= 0")
 
         # Perform search
         if zim_files:
@@ -468,200 +470,55 @@ def search_zim_files(
 
     except (ValueError, RuntimeError, OSError) as e:
         logger.error("Error searching ZIM files for '%s': %s", query, e)
-        return SearchResponse(
-            status="error",
-            query=query,
-            count=0,
-            results=[],
-            pagination=SearchPagination(
-                start_offset=start_offset, max_results=max_results, has_more=False
-            ),
-        )
+        raise ToolError(f"Search failed for query '{query}': {str(e)}") from e
 
 
 @mcp.tool()
-def search_and_extract_content(
-    query: str,
-    zim_files: Optional[List[str]] = None,
-    max_results: int = 10,
-    content_format: str = "text",
-    max_content_length: Optional[int] = None,
-) -> SearchAndExtractResponse:
-    """
-    Search and return full content of matching entries.
-
-    Args:
-        query: Search query
-        zim_files: Optional list of specific ZIM files
-        max_results: Maximum results to extract content for
-        content_format: Format for content (text, html)
-        max_content_length: Maximum content length per entry
-
-    Returns:
-        Dictionary containing search results with full extracted content
-    """
-    try:
-        logger.info("Searching and extracting content for: %s", query)
-
-        # Validate parameters
-        if content_format not in ["text", "html"]:
-            return SearchAndExtractResponse(
-                status="error", query=query, count=0, results=[], format=content_format
-            )
-
-        if max_results <= 0 or max_results > 50:
-            return SearchAndExtractResponse(
-                status="error", query=query, count=0, results=[], format=content_format
-            )
-
-        # Perform search
-        if zim_files:
-            search_results = search_engine.search_multiple_zim(
-                zim_files, query, max_results, 0
-            )
-        else:
-            search_results = search_engine.search_all_zim_files(query, max_results, 0)
-
-        # Extract content for each result
-        extracted_contents = content_extractor.extract_search_results_content(
-            search_results, content_format
-        )
-
-        # Format results
-        formatted_results = []
-        for content in extracted_contents:
-            # Apply content length limit if specified
-            content_text = content.content
-            if max_content_length and len(content_text) > max_content_length:
-                content_text = content_text[:max_content_length] + "... [truncated]"
-
-            formatted_results.append(
-                ExtractedContent(
-                    path=content.path,
-                    title=content.title,
-                    content=content_text,
-                    content_type=content.content_type,
-                    content_length=content.content_length,
-                    preview=content.preview,
-                    is_redirect=content.is_redirect,
-                    metadata=content.metadata,
-                )
-            )
-
-        return SearchAndExtractResponse(
-            status="success",
-            query=query,
-            count=len(formatted_results),
-            results=formatted_results,
-            format=content_format,
-        )
-
-    except (ValueError, RuntimeError, OSError) as e:
-        logger.error("Error searching and extracting content for '%s': %s", query, e)
-        return SearchAndExtractResponse(
-            status="error", query=query, count=0, results=[], format=content_format
-        )
-
-
-@mcp.tool()
-def browse_zim_entries(
-    zim_file: str,
-    path_pattern: Optional[str] = None,
-    title_pattern: Optional[str] = None,
-    limit: int = 50,
-) -> BrowseResponse:
-    """
-    Browse entries by path patterns or title patterns.
-
-    Args:
-        zim_file: ZIM file to browse
-        path_pattern: Optional path pattern to match
-        title_pattern: Optional title pattern to match
-        limit: Maximum entries to return
-
-    Returns:
-        Dictionary containing list of matching entries with basic info
-    """
-    try:
-        logger.info("Browsing entries in %s", zim_file)
-
-        # Validate parameters
-        if limit <= 0 or limit > 200:
-            return BrowseResponse(
-                status="error",
-                zim_file=zim_file,
-                path_pattern=path_pattern,
-                title_pattern=title_pattern,
-                count=0,
-                entries=[],
-            )
-
-        # Validate ZIM file
-        if not zim_manager.validate_zim_file(zim_file):
-            return BrowseResponse(
-                status="error",
-                zim_file=zim_file,
-                path_pattern=path_pattern,
-                title_pattern=title_pattern,
-                count=0,
-                entries=[],
-            )
-
-        # Browse entries
-        results = search_engine.browse_entries_by_pattern(
-            zim_file, path_pattern, title_pattern, limit
-        )
-
-        # Format results
-        formatted_results = []
-        for result in results:
-            formatted_results.append(
-                BrowsedEntry(
-                    path=result.path, title=result.title, is_redirect=result.is_redirect
-                )
-            )
-
-        return BrowseResponse(
-            status="success",
-            zim_file=zim_file,
-            path_pattern=path_pattern,
-            title_pattern=title_pattern,
-            count=len(formatted_results),
-            entries=formatted_results,
-        )
-
-    except (ValueError, RuntimeError, OSError) as e:
-        logger.error("Error browsing entries in %s: %s", zim_file, e)
-        return BrowseResponse(
-            status="error",
-            zim_file=zim_file,
-            path_pattern=path_pattern,
-            title_pattern=title_pattern,
-            count=0,
-            entries=[],
-        )
-
-
-@mcp.tool()
-def get_random_entries(
-    zim_files: Optional[List[str]] = None, count: int = 5
+async def get_random_entries(
+    ctx: Context,
+    zim_files: Annotated[
+        Optional[List[str]],
+        Field(
+            description="Optional list of specific ZIM files to get random entries from. If not provided, uses all available files",
+            examples=[
+                ["wikipedia_en_all_2023.zim"],
+                ["wiktionary_en.zim", "wikiquote_en.zim"],
+                None,
+            ],
+        ),
+    ] = None,
+    count: Annotated[
+        int,
+        Field(
+            description="Number of random entries to return for serendipitous discovery",
+            ge=1,
+            le=50,
+            examples=[5, 10, 20],
+        ),
+    ] = 5,
 ) -> RandomEntriesResponse:
     """
-    Get random entries from ZIM files for exploration.
+    Get random entries from ZIM files for serendipitous discovery and exploration.
+
+    Perfect for "tell me something interesting" queries, discovering new topics,
+    or getting a feel for what content is available in a ZIM file. Entries are
+    distributed across specified files or all available files if none specified.
 
     Args:
+        ctx: Request context
         zim_files: Optional list of specific ZIM files (default: all available)
-        count: Number of random entries to return
+        count: Number of random entries to return (1-50, default: 5)
 
     Returns:
-        Dictionary containing random entries with basic info
+        RandomEntriesResponse: Contains status, count, and list of random
+        entries with zim_file, path, title, and redirect status
     """
     try:
         logger.info("Getting %d random entries", count)
 
         # Validate count
         if count <= 0 or count > 50:
-            return RandomEntriesResponse(status="error", count=0, entries=[])
+            raise ToolError(f"Invalid count: {count}. Must be between 1 and 50")
 
         # Get available files if none specified
         if zim_files is None:
@@ -669,7 +526,7 @@ def get_random_entries(
             zim_files = [f.filename for f in available_files]
 
         if not zim_files:
-            return RandomEntriesResponse(status="error", count=0, entries=[])
+            raise ToolError("No ZIM files available for random entry selection")
 
         random_entries = []
         entries_per_file = max(1, count // len(zim_files))
@@ -700,47 +557,7 @@ def get_random_entries(
 
     except (ValueError, RuntimeError, OSError) as e:
         logger.error("Error getting random entries: %s", e)
-        return RandomEntriesResponse(status="error", count=0, entries=[])
-
-
-# Resource endpoints
-@mcp.resource("zim://files")
-def list_zim_files_resource() -> str:
-    """Provide list of available ZIM files as a resource"""
-    try:
-        result = list_zim_files()
-        if result.status == "success":
-            return json.dumps(result.files, indent=2)
-        else:
-            return f"Error: {result}"
-    except (ValueError, RuntimeError, OSError, TypeError) as e:
-        return f"Error: {str(e)}"
-
-
-@mcp.resource("zim://file/{filename}/metadata")
-def get_zim_metadata_resource(filename: str) -> str:
-    """Provide ZIM file metadata as a resource"""
-    try:
-        result = get_zim_metadata(filename)
-        if result.status == "success":
-            return json.dumps(result.metadata, indent=2)
-        else:
-            return f"Error: {result}"
-    except (ValueError, RuntimeError, OSError, TypeError) as e:
-        return f"Error: {str(e)}"
-
-
-@mcp.resource("zim://file/{filename}/entry/{path}")
-def read_zim_entry_resource(filename: str, path: str) -> str:
-    """Provide specific entry content as a resource"""
-    try:
-        result = read_zim_entry(filename, path, output_format="text")
-        if result.status == "success":
-            return result.entry.content
-        else:
-            return f"Error: {result}"
-    except (ValueError, RuntimeError, OSError, UnicodeDecodeError, TypeError) as e:
-        return f"Error: {str(e)}"
+        raise ToolError(f"Failed to get random entries: {str(e)}") from e
 
 
 if __name__ == "__main__":
