@@ -160,6 +160,13 @@ class ZimManager:
 
             # Cache the info
             self.file_info_cache[filename] = file_info
+
+            # Cache the opened archive to prevent resource leak and improve performance
+            # Future get_archive() calls will reuse this cached instance
+            cache_key = str(filepath)
+            self.archive_cache.put(cache_key, archive)
+            self.logger.debug("Cached archive for %s after metadata read", filename)
+
             return file_info
 
         except (OSError, RuntimeError, ValueError) as e:
