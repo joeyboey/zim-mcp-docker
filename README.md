@@ -118,6 +118,17 @@ Gets detailed metadata about a specific ZIM file.
         -   `zim_file` (str): The name of the ZIM file.
     -   **Returns**: A dictionary containing detailed metadata for the specified ZIM file.
 
+### `get_main_entry`
+
+Gets the main entry (homepage) of a ZIM file.
+
+- get_main_entry(zim_file: str, raw_output: bool = False, return_markdown_only: bool = True)
+    -   **Parameters**:
+        -   `zim_file` (str): The name of the ZIM file.
+        -   `raw_output` (bool): If True, returns original content without processing. (Default: False)
+        -   `return_markdown_only` (bool): If True, returns only markdown text for chat rendering. (Default: True)
+    -   **Returns**: The main/homepage entry content. For Wikipedia ZIMs, this is typically the Wikipedia homepage.
+
 ### `search_zim_files`
 
 Searches for content across one or multiple ZIM files.

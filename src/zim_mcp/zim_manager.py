@@ -87,8 +87,16 @@ class ZimManager:
         try:
             # Open archive to read metadata
             archive = libzim.reader.Archive(str(filepath))
-            # Get basic file stats
-            file_size = filepath.stat().st_size
+            # Get file size (handles multipart archives correctly)
+            file_size = archive.filesize
+
+            # Verify archive integrity if checksum is available
+            if archive.has_checksum:
+                if not archive.check():
+                    self.logger.warning(
+                        "Checksum verification failed for %s - file may be corrupted",
+                        filename,
+                    )
 
             # Extract metadata
             metadata = {}

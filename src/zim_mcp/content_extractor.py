@@ -75,18 +75,25 @@ class ContentExtractor:
         Handles redirects, detects MIME type, and applies appropriate processing.
         """
 
-        # Handle redirects immediately
+        # Handle redirects by following to target entry
         if entry.is_redirect:
-            return ExtractedContentInfo(
-                path=entry.path,
-                title=entry.title,
-                content="[This is a redirect entry]",
-                content_type="redirect",
-                content_length=0,
-                mime_type="redirect",
-                processing_time_ms=0.0,
-                is_redirect=True,
-            )
+            try:
+                redirect_entry = entry.get_redirect_entry()
+                return self._extract_from_entry(redirect_entry, raw_output)
+            except (OSError, ValueError, RuntimeError) as e:
+                self.logger.warning(
+                    "Failed to follow redirect for %s: %s", entry.path, e
+                )
+                return ExtractedContentInfo(
+                    path=entry.path,
+                    title=entry.title,
+                    content=f"[Redirect entry - target unavailable]",
+                    content_type="redirect",
+                    content_length=0,
+                    mime_type="redirect",
+                    processing_time_ms=0.0,
+                    is_redirect=True,
+                )
 
         # Get item and extract metadata
         item = entry.get_item()

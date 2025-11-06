@@ -94,6 +94,11 @@ knowledge bases locally.
 • Great for "tell me something interesting" queries
 • Supports multiple ZIM files
 
+**get_main_entry** - Access ZIM homepage/main entry
+• Get the designated main entry of a ZIM file (typically the homepage)
+• Natural starting point for exploring a ZIM file
+• For Wikipedia ZIMs, returns the Wikipedia homepage
+
 💡 **BEST PRACTICES**:
 
 1. **Start with discovery**: Always use list_zim_files() first to see what's available
@@ -585,6 +590,101 @@ async def get_random_entries(
     except (ValueError, RuntimeError, OSError) as e:
         logger.error("Error getting random entries: %s", e)
         raise ToolError(f"Failed to get random entries: {str(e)}") from e
+
+
+@mcp.tool()
+async def get_main_entry(
+    ctx: Context,
+    zim_file: Annotated[
+        str,
+        Field(
+            description="Name of the ZIM file to get the main entry from",
+            examples=["wikipedia_en_all_2023.zim", "wiktionary_en.zim"],
+        ),
+    ],
+    raw_output: Annotated[
+        bool,
+        Field(
+            description="If True, returns original content without processing",
+            examples=[False, True],
+        ),
+    ] = False,
+    return_markdown_only: Annotated[
+        bool,
+        Field(
+            description="If True, returns only markdown text for direct rendering in chat",
+            examples=[False, True],
+        ),
+    ] = True,
+) -> Union[str, ZimEntryResponse, ImageContent]:
+    """
+    Get the main entry (homepage) of a ZIM file.
+
+    Every ZIM file can have a designated main entry, typically the homepage
+    or introduction page. For Wikipedia ZIMs, this is usually the Wikipedia
+    homepage. This provides a natural starting point for exploring a ZIM file.
+
+    Args:
+        ctx: Request context
+        zim_file: Name of the ZIM file
+        raw_output: Skip all processing, return original content (default: False)
+        return_markdown_only: Return plain markdown string for chat rendering (default: True)
+
+    Returns:
+        Union[str, ZimEntryResponse, ImageContent]:
+        - str for markdown text when return_markdown_only=True
+        - ZimEntryResponse for structured response with metadata
+        - ImageContent for images (if main entry is an image)
+    """
+    try:
+        logger.info("Getting main entry from %s", zim_file)
+
+        # Get main entry
+        entry = zim_manager.get_main_entry(zim_file)
+        if entry is None:
+            raise ToolError(f"No main entry found in {zim_file}")
+
+        # Get item and MIME type
+        item = entry.get_item()
+        content_bytes = bytes(item.content)
+        mime_type = item.mimetype or "application/octet-stream"
+
+        # Handle images - return ImageContent for agent display (unless raw_output)
+        if not raw_output and mime_type.startswith("image/"):
+            return _create_image_content(
+                content_bytes, mime_type, entry.path, entry.title
+            )
+
+        # For text/HTML content - use ContentExtractor directly with entry object
+        # (avoids redundant path lookup that may fail for main entries)
+        extracted = content_extractor._extract_from_entry(entry, raw_output)
+
+        # Return markdown string only for direct chat rendering
+        if (
+            return_markdown_only
+            and not raw_output
+            and extracted.content_type == "markdown"
+        ):
+            return extracted.content
+
+        # Return structured response with full metadata
+        return ZimEntryResponse(
+            status="success",
+            entry=ZimEntryContent(
+                path=extracted.path,
+                title=extracted.title,
+                content=extracted.content,
+                content_length=extracted.content_length,
+                format=extracted.content_type,
+                mime_type=extracted.mime_type,
+                processing_time_ms=extracted.processing_time_ms,
+                is_redirect=extracted.is_redirect,
+            ),
+        )
+
+    except (ValueError, RuntimeError, OSError, UnicodeDecodeError) as e:
+        logger.error("Error getting main entry from %s: %s", zim_file, e)
+        raise ToolError(f"Failed to get main entry from '{zim_file}': {str(e)}") from e
 
 
 def _create_image_content(
