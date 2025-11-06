@@ -1,10 +1,12 @@
-from typing import List, Optional, Annotated, Union
+from typing import Annotated, Union
+import os
 
 from fastmcp import FastMCP, Context
 from fastmcp.exceptions import ToolError, ResourceError
 from fastmcp.utilities.types import Image
 from mcp.types import ImageContent
 from pydantic import Field
+from starlette.responses import PlainTextResponse
 
 # Import from package
 from zim_mcp import (
@@ -396,7 +398,7 @@ async def search_zim_files(
         ),
     ],
     zim_files: Annotated[
-        Optional[List[str]],
+        list[str] | None,
         Field(
             default=None,
             description="Optional list of specific ZIM files to search. If not provided, searches all available files",
@@ -502,7 +504,7 @@ async def search_zim_files(
 async def get_random_entries(
     ctx: Context,
     zim_files: Annotated[
-        Optional[List[str]],
+        list[str] | None,
         Field(
             default=None,
             description="Optional list of specific ZIM files to get random entries from. If not provided, uses all available files",
@@ -751,5 +753,68 @@ async def read_zim_entry_resource(filename: str, path: str, ctx: Context) -> str
         ) from e
 
 
+# ============================================================================
+# Health Check Endpoint (for Docker/Kubernetes)
+# ============================================================================
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health_check(request) -> PlainTextResponse:
+    """
+    Health check endpoint for container orchestration.
+
+    Returns HTTP 200 if server is healthy, 503 if unhealthy.
+    Used by Docker healthcheck and Kubernetes liveness probes.
+    """
+    try:
+        # Check if ZIM files are accessible
+        files = zim_manager.discover_zim_files()
+
+        return PlainTextResponse(
+            f"OK - {len(files)} ZIM files available", status_code=200
+        )
+    except Exception as e:
+        logger.error("Health check failed: %s", e)
+        return PlainTextResponse(f"ERROR: {str(e)}", status_code=503)
+
+
+# ============================================================================
+# Server Startup - Multi-Transport Support
+# ============================================================================
+
+
 if __name__ == "__main__":
-    mcp.run()
+    # Get transport configuration from environment variables
+    transport = os.getenv("FASTMCP_TRANSPORT", "stdio")
+    host = os.getenv("FASTMCP_HOST", "0.0.0.0")
+    port = int(os.getenv("FASTMCP_PORT", "8000"))
+
+    logger.info("=" * 60)
+    logger.info("ZIM MCP Server - Starting")
+    logger.info("=" * 60)
+    logger.info(f"Transport: {transport}")
+    logger.info(f"ZIM files directory: {config.zim_files_directory}")
+    logger.info(f"Found {len(discovered_files)} ZIM files available")
+    logger.info("=" * 60)
+
+    if transport == "stdio":
+        logger.info("Starting STDIO transport (for local MCP clients)")
+        mcp.run(transport="stdio")
+
+    elif transport in ["http", "streamable-http"]:
+        logger.info(f"Starting HTTP (Streamable) transport on {host}:{port}")
+        logger.info(f"MCP endpoint: http://{host}:{port}/mcp/")
+        logger.info(f"Health check: http://{host}:{port}/health")
+        mcp.run(transport="http", host=host, port=port)
+
+    elif transport == "sse":
+        logger.info(f"Starting SSE transport on {host}:{port}")
+        logger.info(f"SSE endpoint: http://{host}:{port}/sse")
+        logger.info(f"Health check: http://{host}:{port}/health")
+        mcp.run(transport="sse", host=host, port=port)
+
+    else:
+        raise ValueError(
+            f"Invalid FASTMCP_TRANSPORT: {transport}. "
+            f"Valid options: 'stdio', 'http', 'sse'"
+        )

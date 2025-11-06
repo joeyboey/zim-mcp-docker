@@ -1,49 +1,116 @@
-# Comments are provided throughout this file to help you get started.
-# If you need more help, visit the Docker Compose reference guide at
-# https://docs.docker.com/go/compose-spec-reference/
+# Docker Compose configuration for ZIM MCP Server
+# Provides both HTTP (Streamable) and SSE transports in separate containers
 
-# Here the instructions define your application as a service called "server".
-# This service is built from the Dockerfile in the current directory.
-# You can add other services your application may depend on here, such as a
-# database or a cache. For examples, see the Awesome Compose repository:
-# https://github.com/docker/awesome-compose
+version: "3.8"
+
 services:
-  server:
+  # ==========================================================================
+  # HTTP (Streamable) Transport - Recommended for modern MCP clients
+  # ==========================================================================
+  zim-mcp-http:
     build:
       context: .
+      dockerfile: Dockerfile
+    container_name: zim-mcp-http
     ports:
-      - 8000:8000
+      - "8000:8000"
+    volumes:
+      - ./zim_files:/zim_files:ro # Mount ZIM files read-only
+    environment:
+      # Transport configuration
+      - FASTMCP_TRANSPORT=http
+      - FASTMCP_HOST=0.0.0.0
+      - FASTMCP_PORT=8000
 
-# The commented out section below is an example of how to define a PostgreSQL
-# database that your application can use. `depends_on` tells Docker Compose to
-# start the database before your application. The `db-data` volume persists the
-# database data between container restarts. The `db-password` secret is used
-# to set the database password. You must create `db/password.txt` and add
-# a password of your choosing to it before running `docker compose up`.
-#     depends_on:
-#       db:
-#         condition: service_healthy
-#   db:
-#     image: postgres
-#     restart: always
-#     user: postgres
-#     secrets:
-#       - db-password
-#     volumes:
-#       - db-data:/var/lib/postgresql/data
-#     environment:
-#       - POSTGRES_DB=example
-#       - POSTGRES_PASSWORD_FILE=/run/secrets/db-password
-#     expose:
-#       - 5432
-#     healthcheck:
-#       test: [ "CMD", "pg_isready" ]
-#       interval: 10s
-#       timeout: 5s
-#       retries: 5
-# volumes:
-#   db-data:
-# secrets:
-#   db-password:
-#     file: db/password.txt
+      # ZIM configuration
+      - ZIM_FILES_DIRECTORY=/zim_files
 
+      # Search settings
+      - MAX_SEARCH_RESULTS=100
+      - SEARCH_TIMEOUT=30
+
+      # Content settings
+      - MAX_CONTENT_LENGTH=50000
+
+      # Cache settings
+      - ARCHIVE_CACHE_SIZE=10
+      - SEARCH_CACHE_SIZE=1000
+
+      # Logging
+      - LOG_LEVEL=INFO
+      - FASTMCP_LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ==========================================================================
+  # SSE Transport - For Home Assistant and legacy clients
+  # ==========================================================================
+  zim-mcp-sse:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zim-mcp-sse
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./zim_files:/zim_files:ro # Mount ZIM files read-only
+    environment:
+      # Transport configuration
+      - FASTMCP_TRANSPORT=sse
+      - FASTMCP_HOST=0.0.0.0
+      - FASTMCP_PORT=8001
+
+      # ZIM configuration
+      - ZIM_FILES_DIRECTORY=/zim_files
+
+      # Search settings
+      - MAX_SEARCH_RESULTS=100
+      - SEARCH_TIMEOUT=30
+
+      # Content settings
+      - MAX_CONTENT_LENGTH=50000
+
+      # Cache settings
+      - ARCHIVE_CACHE_SIZE=10
+      - SEARCH_CACHE_SIZE=1000
+
+      # Logging
+      - LOG_LEVEL=INFO
+      - FASTMCP_LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+# =============================================================================
+# Usage Instructions
+# =============================================================================
+#
+# Build and start both services:
+#   docker compose up --build
+#
+# Start only HTTP service:
+#   docker compose up zim-mcp-http
+#
+# Start only SSE service:
+#   docker compose up zim-mcp-sse
+#
+# View logs:
+#   docker compose logs -f zim-mcp-http
+#   docker compose logs -f zim-mcp-sse
+#
+# Stop all services:
+#   docker compose down
+#
+# Endpoints:
+#   HTTP (Streamable): http://localhost:8000/mcp/
+#   SSE:               http://localhost:8001/sse
+#   Health Checks:     http://localhost:8000/health
+#                      http://localhost:8001/health

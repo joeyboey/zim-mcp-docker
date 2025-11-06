@@ -38,14 +38,30 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=requirements.txt \
     python -m pip install -r requirements.txt
 
-# Switch to the non-privileged user to run the application.
-USER appuser
-
 # Copy the source code into the container.
 COPY . .
 
-# Expose the port that the application listens on.
-EXPOSE 8000
+# Switch to the non-privileged user to run the application.
+USER appuser
 
-# Run the application.
-CMD python src/server.py
+# Expose ports for both HTTP and SSE transports
+EXPOSE 8000
+EXPOSE 8001
+
+# Create ZIM files directory and set as volume mount point
+# This will be mounted from host with actual ZIM files
+RUN mkdir -p /zim_files && chown appuser:appuser /zim_files
+VOLUME ["/zim_files"]
+
+# Set default environment variables for configuration
+ENV FASTMCP_TRANSPORT=http \
+    FASTMCP_HOST=0.0.0.0 \
+    FASTMCP_PORT=8000 \
+    ZIM_FILES_DIRECTORY=/zim_files \
+    LOG_LEVEL=INFO \
+    MAX_SEARCH_RESULTS=100 \
+    MAX_CONTENT_LENGTH=50000 \
+    ARCHIVE_CACHE_SIZE=10
+
+# Run the application
+CMD ["python", "src/server.py"]
