@@ -1,8 +1,6 @@
 # Docker Compose configuration for ZIM MCP Server
 # Provides both HTTP (Streamable) and SSE transports in separate containers
 
-version: "3.8"
-
 services:
   # ==========================================================================
   # HTTP (Streamable) Transport - Recommended for modern MCP clients
