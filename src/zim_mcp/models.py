@@ -49,6 +49,8 @@ class ZimEntryContent(BaseModel):
     content: str
     content_length: int
     format: str
+    mime_type: str
+    processing_time_ms: float
     is_redirect: bool
 
 

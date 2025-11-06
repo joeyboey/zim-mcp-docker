@@ -1,8 +1,9 @@
-from typing import List, Optional, Annotated
-import json
+from typing import List, Optional, Annotated, Union
 
 from fastmcp import FastMCP, Context
 from fastmcp.exceptions import ToolError
+from fastmcp.utilities.types import Image
+from mcp.types import ImageContent
 from pydantic import Field
 
 # Import from package
@@ -256,8 +257,8 @@ async def read_zim_entry(
     zim_file: Annotated[
         str,
         Field(
-            description="Name or filename of the ZIM file containing the entry",
-            examples=["wikipedia_en_all_2023.zim", "wiktionary_en.zim"],
+            description="Name of the ZIM file containing the entry",
+            examples=["wikipedia_en_all_2023.zim", "wikinews_en_all_maxi_2025-10.zim"],
         ),
     ],
     entry_path: Annotated[
@@ -265,84 +266,117 @@ async def read_zim_entry(
         Field(
             description="Path to the entry within the ZIM file (from search results)",
             examples=[
-                "Artificial_intelligence",
+                "Gene",
                 "Quantum_mechanics",
-                "Machine_learning",
+                "US_military_confirms_three_deaths_after_B-52_crash_off_Guam",
             ],
         ),
     ],
-) -> ZimEntryResponse:
+    raw_output: Annotated[
+        bool,
+        Field(
+            description="If True, returns original content without processing. For text: raw HTML/text. For binary: base64-encoded data",
+            examples=[False, True],
+        ),
+    ] = False,
+) -> Union[ZimEntryResponse, ImageContent]:
     """
-    Read complete content of a specific entry from a ZIM file.
+    Read and intelligently process entry content from ZIM file.
 
-    Extracts article content from ZIM files. Currently returns HTML format.
+    Automatically detects content type via MIME type and applies appropriate processing:
+    - **HTML** → Clean Markdown (via MarkItDown) with metadata footer including timing
+    - **Images** → Returns ImageContent for direct display in agent interface
+    - **Plain Text** → Returned as-is without modification
+    - **JSON** → Pretty-printed with indentation for readability
+    - **Binary** → Metadata description with size information
 
-    TODO: Implement markitdown for clean markdown conversion
-    TODO: Add proper content formatting options
+    Set raw_output=True to bypass all processing and get original content
+    (UTF-8 string for text, base64-encoded for binary).
 
     Args:
         ctx: Request context
         zim_file: Name of the ZIM file to read from
-        entry_path: Path to the entry (use paths from search_zim_files results)
+        entry_path: Path to entry (from search_zim_files results)
+        raw_output: Skip all processing, return original content (default: False)
 
     Returns:
-        ZimEntryResponse: Contains status and entry with title, content (HTML),
-        length, and redirect information
+        Union[ZimEntryResponse, ImageContent]:
+        - ZimEntryResponse for text/HTML content with markdown conversion
+        - ImageContent for images (displayable in agent interface)
 
     Examples:
-        >>> # Read article content
+        >>> # Read HTML article (auto-converts to clean markdown)
         >>> entry = await read_zim_entry(
         >>>     ctx,
         >>>     zim_file="wikipedia_en_all_2023.zim",
-        >>>     entry_path="Machine_learning"
+        >>>     entry_path="Gene"
         >>> )
-        >>> print(f"Title: {entry.entry.title}")
-        >>> print(f"Content length: {entry.entry.content_length}")
+        >>> print(entry.entry.content)  # Clean markdown with timing footer
+        >>> print(f"MIME: {entry.entry.mime_type}")
+        >>> print(f"Processing: {entry.entry.processing_time_ms:.1f}ms")
 
-        >>> # Use with search results
-        >>> search_results = await search_zim_files(ctx, query="quantum physics")
-        >>> first_result = search_results.results[0]
-        >>> content = await read_zim_entry(ctx, first_result.zim_file, first_result.path)
+        >>> # Read image (returns ImageContent for display)
+        >>> image = await read_zim_entry(
+        >>>     ctx,
+        >>>     zim_file="wikinews_en_all_maxi_2025-10.zim",
+        >>>     entry_path="some_image.png"
+        >>> )
+        >>> # Agent displays image directly in interface
+
+        >>> # Get raw HTML without conversion
+        >>> entry = await read_zim_entry(
+        >>>     ctx,
+        >>>     zim_file="wikipedia_en_all_2023.zim",
+        >>>     entry_path="Gene",
+        >>>     raw_output=True
+        >>> )
+        >>> print(entry.entry.content)  # Original HTML, no processing
+
+        >>> # Use with search workflow
+        >>> results = await search_zim_files(ctx, query="quantum physics", max_results=5)
+        >>> first = results.results[0]
+        >>> content = await read_zim_entry(ctx, first.zim_file, first.path)
     """
     try:
-        logger.info("Reading entry %s from %s", entry_path, zim_file)
+        logger.info(
+            "Reading entry %s from %s (raw_output=%s)", entry_path, zim_file, raw_output
+        )
 
         # Get entry
         entry = zim_manager.get_entry_by_path(zim_file, entry_path)
-
         if entry is None:
             raise ToolError(f"Entry not found: {entry_path} in {zim_file}")
 
-        # Get content
+        # Get item and MIME type
         item = entry.get_item()
         content_bytes = bytes(item.content)
+        mime_type = item.mimetype or "application/octet-stream"
 
-        # Decode as text
-        # TODO: Replace with markitdown conversion for clean markdown
-        try:
-            content = content_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            try:
-                content = content_bytes.decode("latin-1")
-            except UnicodeDecodeError:
-                content = content_bytes.decode("utf-8", errors="replace")
-
-        # Truncate if too long
-        if len(content) > config.max_content_length:
-            content = (
-                content[: config.max_content_length]
-                + "\n\n... [Content truncated at configured limit] ..."
+        # Handle images - return ImageContent for agent display (unless raw_output)
+        if not raw_output and mime_type.startswith("image/"):
+            return _create_image_content(
+                content_bytes, mime_type, entry.path, entry.title
             )
+
+        # For text/HTML content - use ContentExtractor with MIME-aware processing
+        extracted = content_extractor.extract_entry_content(
+            zim_file, entry_path, raw_output
+        )
+
+        if extracted is None:
+            raise ToolError(f"Failed to extract content from {entry_path}")
 
         return ZimEntryResponse(
             status="success",
             entry=ZimEntryContent(
-                path=entry.path,
-                title=entry.title,
-                content=content,
-                content_length=len(content_bytes),
-                format="html",  # TODO: Change to "markdown" when markitdown integrated
-                is_redirect=entry.is_redirect,
+                path=extracted.path,
+                title=extracted.title,
+                content=extracted.content,
+                content_length=extracted.content_length,
+                format=extracted.content_type,
+                mime_type=extracted.mime_type,
+                processing_time_ms=extracted.processing_time_ms,
+                is_redirect=extracted.is_redirect,
             ),
         )
 
@@ -558,6 +592,48 @@ async def get_random_entries(
     except (ValueError, RuntimeError, OSError) as e:
         logger.error("Error getting random entries: %s", e)
         raise ToolError(f"Failed to get random entries: {str(e)}") from e
+
+
+def _create_image_content(
+    image_bytes: bytes, mime_type: str, path: str, title: str
+) -> ImageContent:
+    """
+    Create ImageContent for display in agent interface.
+
+    Converts image bytes to FastMCP ImageContent that agents can display directly.
+
+    Args:
+        image_bytes: Raw image data
+        mime_type: MIME type (e.g., "image/png", "image/jpeg")
+        path: Entry path
+        title: Entry title
+
+    Returns:
+        ImageContent for MCP display
+    """
+    # Map MIME types to image formats
+    format_map = {
+        "image/png": "png",
+        "image/jpeg": "jpeg",
+        "image/jpg": "jpeg",
+        "image/gif": "gif",
+        "image/webp": "webp",
+        "image/svg+xml": "svg",
+        "image/bmp": "bmp",
+    }
+
+    image_format = format_map.get(mime_type, "png")  # Default to PNG
+
+    logger.info(
+        "Creating ImageContent for %s (%s, %d bytes)",
+        title,
+        mime_type,
+        len(image_bytes),
+    )
+
+    # Create Image object and convert to ImageContent
+    img_obj = Image(data=image_bytes, format=image_format)
+    return img_obj.to_image_content()
 
 
 if __name__ == "__main__":
