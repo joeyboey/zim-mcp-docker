@@ -1,7 +1,7 @@
 from typing import List, Optional, Annotated, Union
 
 from fastmcp import FastMCP, Context
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import ToolError, ResourceError
 from fastmcp.utilities.types import Image
 from mcp.types import ImageContent
 from pydantic import Field
@@ -279,7 +279,14 @@ async def read_zim_entry(
             examples=[False, True],
         ),
     ] = False,
-) -> Union[ZimEntryResponse, ImageContent]:
+    return_markdown_only: Annotated[
+        bool,
+        Field(
+            description="If True, returns only markdown text for direct rendering in chat (not wrapped in response object). Only applies to HTML content",
+            examples=[False, True],
+        ),
+    ] = True,
+) -> Union[str, ZimEntryResponse, ImageContent]:
     """
     Read and intelligently process entry content from ZIM file.
 
@@ -293,53 +300,28 @@ async def read_zim_entry(
     Set raw_output=True to bypass all processing and get original content
     (UTF-8 string for text, base64-encoded for binary).
 
+    Set return_markdown_only=True to get markdown as plain text for chat rendering.
+
     Args:
         ctx: Request context
         zim_file: Name of the ZIM file to read from
         entry_path: Path to entry (from search_zim_files results)
         raw_output: Skip all processing, return original content (default: False)
+        return_markdown_only: Return plain markdown string for chat rendering (default: False)
 
     Returns:
-        Union[ZimEntryResponse, ImageContent]:
-        - ZimEntryResponse for text/HTML content with markdown conversion
+        Union[str, ZimEntryResponse, ImageContent]:
+        - str for markdown text when return_markdown_only=True (renders in chat)
+        - ZimEntryResponse for structured response with metadata
         - ImageContent for images (displayable in agent interface)
-
-    Examples:
-        >>> # Read HTML article (auto-converts to clean markdown)
-        >>> entry = await read_zim_entry(
-        >>>     ctx,
-        >>>     zim_file="wikipedia_en_all_2023.zim",
-        >>>     entry_path="Gene"
-        >>> )
-        >>> print(entry.entry.content)  # Clean markdown with timing footer
-        >>> print(f"MIME: {entry.entry.mime_type}")
-        >>> print(f"Processing: {entry.entry.processing_time_ms:.1f}ms")
-
-        >>> # Read image (returns ImageContent for display)
-        >>> image = await read_zim_entry(
-        >>>     ctx,
-        >>>     zim_file="wikinews_en_all_maxi_2025-10.zim",
-        >>>     entry_path="some_image.png"
-        >>> )
-        >>> # Agent displays image directly in interface
-
-        >>> # Get raw HTML without conversion
-        >>> entry = await read_zim_entry(
-        >>>     ctx,
-        >>>     zim_file="wikipedia_en_all_2023.zim",
-        >>>     entry_path="Gene",
-        >>>     raw_output=True
-        >>> )
-        >>> print(entry.entry.content)  # Original HTML, no processing
-
-        >>> # Use with search workflow
-        >>> results = await search_zim_files(ctx, query="quantum physics", max_results=5)
-        >>> first = results.results[0]
-        >>> content = await read_zim_entry(ctx, first.zim_file, first.path)
     """
     try:
         logger.info(
-            "Reading entry %s from %s (raw_output=%s)", entry_path, zim_file, raw_output
+            "Reading entry %s from %s (raw_output=%s, markdown_only=%s)",
+            entry_path,
+            zim_file,
+            raw_output,
+            return_markdown_only,
         )
 
         # Get entry
@@ -366,6 +348,15 @@ async def read_zim_entry(
         if extracted is None:
             raise ToolError(f"Failed to extract content from {entry_path}")
 
+        # Return markdown string only for direct chat rendering
+        if (
+            return_markdown_only
+            and not raw_output
+            and extracted.content_type == "markdown"
+        ):
+            return extracted.content
+
+        # Return structured response with full metadata
         return ZimEntryResponse(
             status="success",
             entry=ZimEntryContent(
@@ -407,11 +398,11 @@ async def search_zim_files(
     zim_files: Annotated[
         Optional[List[str]],
         Field(
+            default=None,
             description="Optional list of specific ZIM files to search. If not provided, searches all available files",
             examples=[
                 ["wikipedia_en_all_2023.zim"],
                 ["wiktionary_en.zim", "wikiquote_en.zim"],
-                None,
             ],
         ),
     ] = None,
@@ -513,11 +504,11 @@ async def get_random_entries(
     zim_files: Annotated[
         Optional[List[str]],
         Field(
+            default=None,
             description="Optional list of specific ZIM files to get random entries from. If not provided, uses all available files",
             examples=[
                 ["wikipedia_en_all_2023.zim"],
                 ["wiktionary_en.zim", "wikiquote_en.zim"],
-                None,
             ],
         ),
     ] = None,
@@ -634,6 +625,130 @@ def _create_image_content(
     # Create Image object and convert to ImageContent
     img_obj = Image(data=image_bytes, format=image_format)
     return img_obj.to_image_content()
+
+
+# ============================================================================
+# MCP Resource Endpoints (Read-Only Data Access)
+# ============================================================================
+
+
+@mcp.resource("zim://files")
+async def list_zim_files_resource(ctx: Context) -> dict:
+    """
+    List all available ZIM files as a resource.
+
+    Resource URI: zim://files
+
+    Provides read-only access to the list of ZIM files with metadata.
+    Complements the list_zim_files() tool.
+    """
+    try:
+        files = zim_manager.discover_zim_files()
+
+        return {
+            "count": len(files),
+            "files": [
+                {
+                    "filename": f.filename,
+                    "title": f.title,
+                    "description": f.description,
+                    "size": f.size_formatted,
+                    "article_count": f.article_count,
+                    "media_count": f.media_count,
+                    "language": f.language,
+                    "creator": f.creator,
+                    "date": f.date,
+                    "has_fulltext_index": f.has_fulltext_index,
+                    "has_title_index": f.has_title_index,
+                }
+                for f in files
+            ],
+        }
+
+    except Exception as e:
+        logger.error("Resource error (zim://files): %s", e)
+        raise ResourceError(f"Failed to list ZIM files: {str(e)}") from e
+
+
+@mcp.resource("zim://{filename}/metadata")
+async def get_zim_metadata_resource(filename: str, ctx: Context) -> dict:
+    """
+    Get detailed metadata for a specific ZIM file as a resource.
+
+    Resource URI template: zim://{filename}/metadata
+
+    Examples:
+    - zim://wikipedia_en_100_2025-10.zim/metadata
+    - zim://wikinews_en_all_maxi_2025-10.zim/metadata
+
+    Provides read-only access to ZIM file metadata.
+    Complements the get_zim_metadata() tool.
+    """
+    try:
+        file_info = zim_manager.get_zim_file_info(filename)
+
+        if file_info is None:
+            raise ResourceError(f"ZIM file not found: {filename}")
+
+        return {
+            "filename": file_info.filename,
+            "title": file_info.title,
+            "description": file_info.description,
+            "size": file_info.size,
+            "size_formatted": file_info.size_formatted,
+            "article_count": file_info.article_count,
+            "media_count": file_info.media_count,
+            "language": file_info.language,
+            "creator": file_info.creator,
+            "date": file_info.date,
+            "has_fulltext_index": file_info.has_fulltext_index,
+            "has_title_index": file_info.has_title_index,
+            "uuid": file_info.uuid,
+        }
+
+    except Exception as e:
+        logger.error("Resource error (zim://%s/metadata): %s", filename, e)
+        raise ResourceError(f"Failed to get metadata for '{filename}': {str(e)}") from e
+
+
+@mcp.resource("zim://{filename}/entry/{path*}")
+async def read_zim_entry_resource(filename: str, path: str, ctx: Context) -> str:
+    """
+    Read entry content as a resource (returns markdown).
+
+    Resource URI template: zim://{filename}/entry/{path*}
+
+    The wildcard {path*} captures the full entry path including any slashes.
+
+    Examples:
+    - zim://wikipedia_en_100_2025-10.zim/entry/Gene
+    - zim://wikinews_en_all_maxi_2025-10.zim/entry/US_military_confirms_three_deaths_after_B-52_crash_off_Guam
+
+    Returns markdown-converted content (for HTML entries) or plain text.
+    For images and binary content, use the read_zim_entry tool instead.
+
+    Provides read-only access to entry content.
+    Complements the read_zim_entry() tool.
+    """
+    try:
+        logger.info("Resource request: zim://%s/entry/%s", filename, path)
+
+        extracted = content_extractor.extract_entry_content(
+            filename, path, raw_output=False
+        )
+
+        if extracted is None:
+            raise ResourceError(f"Entry not found: {path} in {filename}")
+
+        # For resources, always return text content
+        # Images and binary content return metadata descriptions
+        return extracted.content
+
+    except Exception as e:
+        logger.error("Resource error (zim://%s/entry/%s): %s", filename, path, e)
+        raise ResourceError(
+            f"Failed to read entry '{path}' from '{filename}': {str(e)}"
+        ) from e
 
 
 if __name__ == "__main__":
