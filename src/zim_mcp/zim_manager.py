@@ -85,7 +85,42 @@ class ZimManager:
             return self.file_info_cache[filename]
 
         try:
-            # Open archive to read metadata
+            # Check file size before opening (prevent loading massive files)
+            preliminary_size = filepath.stat().st_size
+            size_mb = preliminary_size / (1024 * 1024)
+
+            # Skip metadata loading for files exceeding size limit
+            if size_mb > self.config.max_zim_file_size_mb:
+                self.logger.info(
+                    "Skipping metadata load for %s (%.1f MB > %d MB limit) - file too large",
+                    filename,
+                    size_mb,
+                    self.config.max_zim_file_size_mb,
+                )
+
+                # Return minimal metadata without opening archive
+                file_info = ZimManagerFileInfo(
+                    filename=filename,
+                    filepath=filepath,
+                    size=preliminary_size,
+                    size_formatted=format_file_size(preliminary_size),
+                    article_count=0,
+                    media_count=0,
+                    title=filename,
+                    description=f"Large ZIM file (skipped metadata loading due to size)",
+                    language="",
+                    creator="",
+                    date="",
+                    has_fulltext_index=False,
+                    has_title_index=False,
+                    uuid="",
+                )
+
+                # Cache the info
+                self.file_info_cache[filename] = file_info
+                return file_info
+
+            # Open archive to read metadata (for files within size limit)
             archive = libzim.reader.Archive(str(filepath))
             # Get file size (handles multipart archives correctly)
             file_size = archive.filesize

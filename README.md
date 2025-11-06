@@ -81,6 +81,7 @@ Configure the server using environment variables in `compose.yaml` or `.env` fil
 | `MAX_CONCURRENT_SEARCHES` | Maximum number of concurrent search operations | `5` | `5`, `10` |
 | `ENABLE_PARALLEL_SEARCH` | Enable parallel search across multiple ZIM files | `true` | `true`, `false` |
 | `ENABLE_PERFORMANCE_LOGGING` | Enable detailed performance logging | `false` | `true`, `false` |
+| `MAX_ZIM_FILE_SIZE_MB` | Maximum ZIM file size in MB to load metadata for (larger files skipped to save resources) | `1000` | `500`, `1000`, `2000` |
 
 #### FastMCP Transport Configuration
 

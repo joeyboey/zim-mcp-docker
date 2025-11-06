@@ -23,6 +23,9 @@ class ZimServerConfig:
     # Performance settings
     max_concurrent_searches: int = 5
     enable_parallel_search: bool = True
+    max_zim_file_size_mb: int = (
+        1000  # Skip metadata loading for files larger than this (in MB)
+    )
 
     # Logging settings
     log_level: str = "INFO"
@@ -50,6 +53,7 @@ def load_config() -> ZimServerConfig:
         max_concurrent_searches=int(os.getenv("MAX_CONCURRENT_SEARCHES", "5")),
         enable_parallel_search=os.getenv("ENABLE_PARALLEL_SEARCH", "true").lower()
         == "true",
+        max_zim_file_size_mb=int(os.getenv("MAX_ZIM_FILE_SIZE_MB", "1000")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         enable_performance_logging=os.getenv(
             "ENABLE_PERFORMANCE_LOGGING", "false"
