@@ -43,6 +43,9 @@ class ZimManager:
         # Track available ZIM files
         self._available_files: Optional[List[ZimManagerFileInfo]] = None
 
+        # Map filenames to full paths (for nested directory support)
+        self.filename_to_path_map: Dict[str, Path] = {}
+
     @timing_decorator
     def discover_zim_files(
         self, force_refresh: bool = False
@@ -161,6 +164,9 @@ class ZimManager:
             # Cache the info
             self.file_info_cache[filename] = file_info
 
+            # Map filename to full path (for nested directory support)
+            self.filename_to_path_map[filename] = filepath
+
             # Cache the opened archive to prevent resource leak and improve performance
             # Future get_archive() calls will reuse this cached instance
             cache_key = str(filepath)
@@ -176,7 +182,14 @@ class ZimManager:
     def get_zim_file_info(self, filename: str) -> Optional[ZimManagerFileInfo]:
         """Get information about a specific ZIM file"""
         try:
-            filepath = validate_zim_file_path(filename, self.config.zim_files_directory)
+            # Check filename-to-path mapping first (supports nested directories)
+            if filename in self.filename_to_path_map:
+                filepath = self.filename_to_path_map[filename]
+            else:
+                # Fallback to direct path validation (for files not yet discovered)
+                filepath = validate_zim_file_path(
+                    filename, self.config.zim_files_directory
+                )
 
             if not filepath.exists():
                 return None
@@ -190,8 +203,14 @@ class ZimManager:
     def get_archive(self, filename: str) -> Optional[libzim.reader.Archive]:
         """Get an open ZIM archive, using cache when possible"""
         try:
-            # Validate file path
-            filepath = validate_zim_file_path(filename, self.config.zim_files_directory)
+            # Check filename-to-path mapping first (supports nested directories)
+            if filename in self.filename_to_path_map:
+                filepath = self.filename_to_path_map[filename]
+            else:
+                # Fallback to direct path validation (for files not yet discovered)
+                filepath = validate_zim_file_path(
+                    filename, self.config.zim_files_directory
+                )
 
             if not filepath.exists():
                 self.logger.error("ZIM file not found: %s", filepath)
@@ -306,6 +325,7 @@ class ZimManager:
         """Clear all caches"""
         self.archive_cache.clear()
         self.file_info_cache.clear()
+        self.filename_to_path_map.clear()
         self._available_files = None
         self.logger.info("Cleared all caches")
 
