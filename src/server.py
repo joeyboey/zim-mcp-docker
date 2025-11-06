@@ -657,7 +657,7 @@ async def get_main_entry(
 
         # For text/HTML content - use ContentExtractor directly with entry object
         # (avoids redundant path lookup that may fail for main entries)
-        extracted = content_extractor._extract_from_entry(entry, raw_output)
+        extracted = content_extractor._extract_from_entry(entry, raw_output, zim_file)
 
         # Return markdown string only for direct chat rendering
         if (

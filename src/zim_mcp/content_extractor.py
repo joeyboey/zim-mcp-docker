@@ -58,7 +58,7 @@ class ContentExtractor:
             if entry is None:
                 return None
 
-            return self._extract_from_entry(entry, raw_output)
+            return self._extract_from_entry(entry, raw_output, zim_file)
 
         except (OSError, ValueError, RuntimeError) as e:
             self.logger.error(
@@ -67,7 +67,7 @@ class ContentExtractor:
             return None
 
     def _extract_from_entry(
-        self, entry: libzim.reader.Entry, raw_output: bool
+        self, entry: libzim.reader.Entry, raw_output: bool, zim_file: str = ""
     ) -> ExtractedContentInfo:
         """
         Extract content from a ZIM entry with MIME-aware processing and timing.
@@ -79,7 +79,7 @@ class ContentExtractor:
         if entry.is_redirect:
             try:
                 redirect_entry = entry.get_redirect_entry()
-                return self._extract_from_entry(redirect_entry, raw_output)
+                return self._extract_from_entry(redirect_entry, raw_output, zim_file)
             except (OSError, ValueError, RuntimeError) as e:
                 self.logger.warning(
                     "Failed to follow redirect for %s: %s", entry.path, e
@@ -108,7 +108,7 @@ class ContentExtractor:
             format_type = "raw"
         else:
             content, processing_time_ms = self._process_by_mimetype(
-                content_bytes, mime_type, entry.path, entry.title
+                content_bytes, mime_type, entry.path, entry.title, zim_file
             )
             format_type = self._get_format_type(mime_type)
 
@@ -131,7 +131,12 @@ class ContentExtractor:
         )
 
     def _process_by_mimetype(
-        self, content_bytes: bytes, mime_type: str, path: str, title: str
+        self,
+        content_bytes: bytes,
+        mime_type: str,
+        path: str,
+        title: str,
+        zim_file: str = "",
     ) -> tuple[str, float]:
         """
         Process content based on MIME type with timing information.
@@ -149,7 +154,7 @@ class ContentExtractor:
 
                 # Add metadata footer with timing
                 content = self._add_metadata_footer(
-                    content, mime_type, len(content_bytes), elapsed_ms
+                    content, mime_type, len(content_bytes), elapsed_ms, zim_file
                 )
                 return content, elapsed_ms
 
@@ -232,16 +237,22 @@ class ContentExtractor:
         return content, 0.0  # No processing time for raw output
 
     def _add_metadata_footer(
-        self, content: str, mime_type: str, original_size: int, processing_ms: float
+        self,
+        content: str,
+        mime_type: str,
+        original_size: int,
+        processing_ms: float,
+        zim_file: str = "",
     ) -> str:
         """
-        Add metadata footer to content with timing information.
+        Add metadata footer to content with timing information and usage instructions.
 
         Appends markdown-formatted metadata section at the end of content.
         """
 
         size_kb = original_size / 1024
 
+        # Build footer with file context if available
         footer = f"""
 
 ---
@@ -252,6 +263,20 @@ class ContentExtractor:
 - **Original Size**: {size_kb:.1f} KB
 - **Processing Time**: {processing_ms:.1f} ms
 """
+
+        # Add usage instructions if we know the ZIM file
+        if zim_file:
+            footer += f"""
+**Using Links in This Content**:
+- **Article links**: Use the text in parentheses directly with read_zim_entry
+  - Example: `[List of presidents](List_of_presidents_of_the_United_States)`
+  - Use: `read_zim_entry(zim_file="{zim_file}", entry_path="List_of_presidents_of_the_United_States")`
+- **Image links**: Image paths also work with read_zim_entry
+  - Example: `![](./_assets_/hash/image.jpg)`
+  - Use: `read_zim_entry(zim_file="{zim_file}", entry_path="./_assets_/hash/image.jpg")`
+- All paths in links are relative to the ZIM file and work directly with read_zim_entry
+"""
+
         return content + footer
 
     def _handle_image_metadata(
