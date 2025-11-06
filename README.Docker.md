@@ -1,7 +1,12 @@
 ### Building and running your application
 
 When you're ready, start your application by running:
-`docker compose up --build`.
+`docker compose up --build --no-cache`.
+
+Remember to clear the python cache:
+`find . | grep -E "(__pycache__|\.pyc|\.pyo$)" | xargs rm -rf`
+
+And delete the containers from docker desktop, otherwise changes might not apply.
 
 Your application will be available at http://localhost:8000.
 
