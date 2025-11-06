@@ -15,7 +15,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./zim_files:/zim_files:ro # Mount ZIM files read-only
+      - ./zim_files:/app/zim_files:ro # Mount ZIM files read-only
     environment:
       # Transport configuration
       - FASTMCP_TRANSPORT=http
@@ -23,7 +23,7 @@ services:
       - FASTMCP_PORT=8000
 
       # ZIM configuration
-      - ZIM_FILES_DIRECTORY=/zim_files
+      - ZIM_FILES_DIRECTORY=/app/zim_files
 
       # Search settings
       - MAX_SEARCH_RESULTS=100
@@ -58,7 +58,7 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - ./zim_files:/zim_files:ro # Mount ZIM files read-only
+      - ./zim_files:/app/zim_files:ro # Mount ZIM files read-only
     environment:
       # Transport configuration
       - FASTMCP_TRANSPORT=sse
@@ -66,7 +66,7 @@ services:
       - FASTMCP_PORT=8001
 
       # ZIM configuration
-      - ZIM_FILES_DIRECTORY=/zim_files
+      - ZIM_FILES_DIRECTORY=/app/zim_files
 
       # Search settings
       - MAX_SEARCH_RESULTS=100

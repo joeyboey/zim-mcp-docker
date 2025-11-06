@@ -48,16 +48,11 @@ USER appuser
 EXPOSE 8000
 EXPOSE 8001
 
-# Create ZIM files directory and set as volume mount point
-# This will be mounted from host with actual ZIM files
-RUN mkdir -p /zim_files && chown appuser:appuser /zim_files
-VOLUME ["/zim_files"]
-
 # Set default environment variables for configuration
 ENV FASTMCP_TRANSPORT=http \
     FASTMCP_HOST=0.0.0.0 \
     FASTMCP_PORT=8000 \
-    ZIM_FILES_DIRECTORY=/zim_files \
+    ZIM_FILES_DIRECTORY=/app/zim_files \
     LOG_LEVEL=INFO \
     MAX_SEARCH_RESULTS=100 \
     MAX_CONTENT_LENGTH=50000 \
