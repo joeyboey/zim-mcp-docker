@@ -19,6 +19,9 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 VOLUME /app
 
+RUN apt-get update \
+    && apt-get install -y curl jq
+
 # Create a non-privileged user that the app will run under.
 # See https://docs.docker.com/go/dockerfile-user-best-practices/
 ARG UID=10001
