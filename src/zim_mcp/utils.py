@@ -1,9 +1,3 @@
-"""
-Utility functions for MCP ZIM Server
-
-Author: mobilemutex
-"""
-
 import logging
 import time
 from functools import wraps
@@ -140,18 +134,3 @@ class LRUCache:
     def size(self) -> int:
         """Get current cache size"""
         return len(self.cache)
-
-
-def validate_search_query(query: str) -> str:
-    """Validate and clean search query"""
-    if not query or not query.strip():
-        raise ValueError("Search query cannot be empty")
-
-    # Clean the query
-    cleaned_query = query.strip()
-
-    # Basic length validation
-    if len(cleaned_query) > 1000:
-        raise ValueError("Search query too long (max 1000 characters)")
-
-    return cleaned_query

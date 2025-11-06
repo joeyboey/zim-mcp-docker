@@ -1,9 +1,3 @@
-"""
-Search engine for ZIM files
-
-Author: mobilemutex
-"""
-
 import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass

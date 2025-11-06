@@ -1,10 +1,3 @@
-"""
-Content extraction and formatting for ZIM entries with MarkItDown integration
-
-Author: mobilemutex
-Enhanced with MIME-aware processing and markdown conversion
-"""
-
 import logging
 import time
 import base64

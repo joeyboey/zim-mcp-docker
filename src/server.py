@@ -78,7 +78,8 @@ knowledge bases locally.
 • Returns ranked results with titles, paths, and content previews
 
 **read_zim_entry** - Extract complete article content
-• Multiple formats: 'text' (clean markdown), 'html' (formatted), 'raw'
+• Intelligent MIME-based processing (HTML→Markdown, images, JSON, text)
+• Control output format with raw_output and return_markdown_only parameters
 • Content length limiting to prevent token overflow
 • Use entry paths from search results
 • Best for deep-dive reading after searching
@@ -125,9 +126,8 @@ knowledge bases locally.
 • Entry paths from search results can be used directly in read_zim_entry
 • Search previews and relevance scores may not be available (limitation of ZIM format)
 
-⚠️ **CURRENT LIMITATIONS**:
-• HTML to text conversion is work-in-progress - content may contain markup
-• Search result previews are not yet implemented
+⚠️ **LIMITATIONS**:
+• Search result previews are not available (ZIM format limitation)
 • Relevance scores may show as 0.0
 
 🚀 **PERFORMANCE TIPS**:

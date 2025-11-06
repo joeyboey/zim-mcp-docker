@@ -5,64 +5,99 @@ An MCP (Model Context Protocol) server that provides offline search and content 
 ## Features
 
 - **Offline Search**: Full-text search across millions of articles within ZIM files.
-- **Content Extraction**: Extract and format content from ZIM entries in various formats (text, HTML).
+- **Intelligent Content Processing**: Automatic HTML-to-Markdown conversion with MIME-aware processing for different content types.
+- **Image Support**: Direct image display via ImageContent for agent interfaces.
 - **ZIM File Discovery**: Automatically discover ZIM files in a specified directory.
-- **Caching**: In-memory caching for archives, search results, and file info to improve performance.
+- **Multi-level Caching**: Archive caching, search result caching, and file info caching for optimal performance.
+- **Multiple Transports**: Support for stdio, HTTP (streamable), and SSE protocols.
 - **Configurable**: Easily configurable through environment variables.
 
 ## Requirements
 
-- Python 3.10+
-- `pip` or `uv` for package installation
+- Docker and Docker Compose
+- ZIM files (Wikipedia dumps or other offline content)
+
+### ZIM Sources
+- https://dumps.wikimedia.org/other/kiwix/zim
+- https://download.kiwix.org/zim/
 
 ## Getting Started
 
-Run the [Python package](https://pypi.org/p/zim-mcp) as a CLI command using [`uv`](https://docs.astral.sh/uv/guides/tools/):
+The fastest way to get started is using Docker Compose:
 
 ```bash
-uvx zim-mcp # see --help for more options
+# Clone the repository
+git clone https://github.com/joeyboey/zim-mcp-docker.git
+cd zim-mcp-docker
+
+# Place your ZIM files in the zim_files directory
+mkdir -p zim_files
+# Copy your .zim files to zim_files/
+
+# Start the server
+docker compose up --build
 ```
 
-## Build/Install from GitHub
+The server will be available at:
+- HTTP (Streamable): `http://localhost:8000/mcp/`
+- SSE: `http://localhost:8001/sse`
+- Health checks: `http://localhost:8000/health` and `http://localhost:8001/health`
 
-1.  **Clone the repository or download the source code:**
+## Docker Configuration
 
-    ```bash
-    git clone https://github.com/mobilemutex/zim-mcp.git
-    cd zim-mcp
-    ```
+The server supports two transport protocols running simultaneously:
 
-2.  **Run with `uv`:**
+- **HTTP (Streamable)** - Port 8000 (recommended for modern MCP clients)
+- **SSE** - Port 8001 (for legacy clients and Home Assistant)
 
-    ```bash
-    uv run zim-mcp
-    ```
+### Environment Variables
 
-    **or with `pipx`:**
+Configure the server using environment variables in `compose.yaml` or `.env` file:
 
-    ```bash
+#### ZIM Server Configuration
 
-    pipx install .
-    zim-mcp
-    ```
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `ZIM_FILES_DIRECTORY` | Directory containing ZIM files (absolute path in container) | `/app/zim_files` | `/app/zim_files` |
+| `MAX_SEARCH_RESULTS` | Maximum number of search results to return per query | `100` | `100`, `200` |
+| `SEARCH_TIMEOUT` | Timeout for search operations in seconds | `30` | `30`, `60` |
+| `MAX_CONTENT_LENGTH` | Maximum content length in characters (prevents token overflow) | `50000` | `50000`, `100000` |
+| `LOG_LEVEL` | Logging level for ZIM server | `INFO` | `DEBUG`, `INFO`, `WARNING` |
 
-    **or with `pip` and `venv`:**
-    
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install .
-    zim-mcp
-    ```
+#### Cache Configuration
 
-## Configuration
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `ARCHIVE_CACHE_SIZE` | Number of ZIM files to keep open simultaneously (LRU cache) | `10` | `10`, `20` |
+| `SEARCH_CACHE_SIZE` | Number of search result sets to cache (LRU cache) | `1000` | `1000`, `2000` |
 
-The server can be configured using the following environment variables:
+**Note**: `ARCHIVE_CACHE_SIZE=10` means the server keeps up to 10 ZIM files open at once. When an 11th file is accessed, the least recently used file is closed. This significantly improves performance for frequently accessed files.
 
--   `ZIM_FILES_DIRECTORY`: The directory where your ZIM files are stored. (Default: `./zim_files`)
--   `MAX_SEARCH_RESULTS`: The maximum number of search results to return per query. (Default: `100`)
--   `SEARCH_TIMEOUT`: The timeout for search operations in seconds. (Default: `30`)
--   `LOG_LEVEL`: The logging level for the server. (Default: `INFO`)
+#### Performance Configuration
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `DEFAULT_CONTENT_FORMAT` | Default format for content extraction | `text` | `text`, `html` |
+| `MAX_CONCURRENT_SEARCHES` | Maximum number of concurrent search operations | `5` | `5`, `10` |
+| `ENABLE_PARALLEL_SEARCH` | Enable parallel search across multiple ZIM files | `true` | `true`, `false` |
+| `ENABLE_PERFORMANCE_LOGGING` | Enable detailed performance logging | `false` | `true`, `false` |
+
+#### FastMCP Transport Configuration
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `FASTMCP_TRANSPORT` | MCP transport protocol | `stdio` | `http`, `sse`, `stdio` |
+| `FASTMCP_HOST` | Host address to bind to (for http/sse transports) | `0.0.0.0` | `0.0.0.0`, `127.0.0.1` |
+| `FASTMCP_PORT` | Port to bind to (for http/sse transports) | `8000` | `8000`, `8001` |
+| `FASTMCP_LOG_LEVEL` | Logging level for FastMCP framework | `INFO` | `DEBUG`, `INFO`, `WARNING` |
+
+See `compose.yaml` for a complete working configuration example.
+
+## Configuration Reference
+
+For detailed environment variable configuration, see the [Environment Variables](#environment-variables) section under Docker Configuration above.
+
+**Quick Reference**: All configuration is done via environment variables. The `compose.yaml` file contains a complete working configuration with all available options.
 
 ## Tools
 
@@ -87,7 +122,7 @@ Gets detailed metadata about a specific ZIM file.
 
 Searches for content across one or multiple ZIM files.
 
-- search_zim_files(query: str, zim_files: Optional[List[str]], max_results: int, start_offset: int) 
+- search_zim_files(query: str, zim_files: Optional[List[str]], max_results: int, start_offset: int)
     -   **Parameters**:
         -   `query` (str): The search query.
         -   `zim_files` (Optional[List[str]]): A list of ZIM files to search. If not provided, all files are searched.
@@ -97,34 +132,19 @@ Searches for content across one or multiple ZIM files.
 
 ### `read_zim_entry`
 
-Reads the content of a specific entry from a ZIM file.
+Reads and processes content from a ZIM file entry.
 
-- read_zim_entry(zim_file: str, entry_path: str, format: str)
+- read_zim_entry(zim_file: str, entry_path: str, raw_output: bool = False, return_markdown_only: bool = True)
     -   **Parameters**:
         -   `zim_file` (str): The name of the ZIM file.
         -   `entry_path` (str): The path to the entry.
-        -   `format` (str): The output format (`text`, `html`, `raw`). (Default: `text`)
-    -   **Returns**: A dictionary containing the entry's content.
+        -   `raw_output` (bool): If True, returns original content without processing. (Default: False)
+        -   `return_markdown_only` (bool): If True, returns only markdown text for chat rendering. (Default: True)
+    -   **Returns**: Markdown string (if return_markdown_only=True), ZimEntryResponse (structured), or ImageContent (for images).
 
-### `search_and_extract_content`
 
-Performs a search and returns the full content of the matching entries.
 
-- search_and_extract_content(query: str, ...)
-    -   **Parameters**: Similar to `search_zim_files`, with additional content formatting options.
-    -   **Returns**: A dictionary containing the search results with their full content.
 
-### `browse_zim_entries`
-
-Browses entries by path or title patterns.
-
-- browse_zim_entries(zim_file: str, ...)
-    -   **Parameters**:
-        -   `zim_file` (str): The ZIM file to browse.
-        -   `path_pattern` (Optional[str]): A pattern to match against entry paths.
-        -   `title_pattern` (Optional[str]): A pattern to match against entry titles.
-        -   `limit` (int): The maximum number of entries to return.
-    -   **Returns**: A list of matching entries.
 
 ### `get_random_entries`
 
@@ -141,126 +161,104 @@ Gets a specified number of random entries from ZIM files.
 The server also exposes the following resource endpoints:
 
 -   `zim://files`: Lists all available ZIM files.
--   `zim://file/{filename}/metadata`: Provides metadata for a specific ZIM file.
--   `zim://file/{filename}/entry/{path}`: Provides the content of a specific entry.
+-   `zim://{filename}/metadata`: Provides metadata for a specific ZIM file.
+-   `zim://{filename}/entry/{path}`: Provides the content of a specific entry.
 
-## Usage
+## Docker Usage
 
-This Python package is published to PyPI as [zim-mcp](https://pypi.org/p/zim-mcp) and can be installed and run with [pip](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/#install-a-package), [pipx](https://pipx.pypa.io/), [uv](https://docs.astral.sh/uv/), [poetry](https://python-poetry.org/), or any Python package manager.
-
-```text
-$ pipx install zim-mcp
-$ zim-mcp --help
-
-usage: zim-mcp [-h] [--transport {stdio,streamable-http,sse}] [--port PORT]
-
-MCP ZIM Server
-
-options:
-  -h, --help            show this help message and exit
-  --transport {stdio,streamable-http,sse}
-                        Transport type (default: stdio)
-  --port PORT           Port for SSE transport (default: 8000)
-```
-
-### Running the Server
-1.  **Place your ZIM files** in the directory specified by the `ZIM_FILES_DIRECTORY` environment variable (or the default `./zim_files` directory).
-
-2.  **Run the server** using one of the supported transports:
-
-    -   **Standard I/O (stdio):**
-
-        ```bash
-        zim-mcp --transport stdio
-        ```
-
-    -   **Server-Sent Events (SSE):**
-
-        ```bash
-        zim-mcp --transport sse --port 8000
-        ```
-    
-    -   **Server-Sent Events (SSE):**
-
-        ```bash
-        zim-mcp --transport streamable-http
-        ```
-
-### Using with OpenWeb-UI and MCPO
-
-You can integrate `zim-mcp` with [OpenWeb-UI](https://github.com/open-webui/open-webui) using [MCPO](https://github.com/open-webui/mcpo), an MCP-to-OpenAPI proxy. This allows you to expose `zim-mcp`'s tools through a standard RESTful API, making them accessible to web interfaces and other tools.
-
-#### With `uvx`
-
-You can run `zim-mcp` and `mcpo` together using `uvx`:
+### Starting the Services
 
 ```bash
-uvx mcpo -- zim-mcp
+# Start both HTTP and SSE services
+docker compose up --build
+
+# Start only HTTP service
+docker compose up zim-mcp-http
+
+# Start only SSE service
+docker compose up zim-mcp-sse
+
+# Run in background
+docker compose up -d
 ```
 
-### Standard Input/Output (stdio)
-
-The stdio transport enables communication through standard input and output streams. This is particularly useful for local integrations and command-line tools. See the [spec](https://modelcontextprotocol.io/docs/concepts/transports#built-in-transport-types) for more details.
-
-#### Python
+### Viewing Logs
 
 ```bash
-zim-mcp
+# View all logs
+docker compose logs -f
+
+# View specific service logs
+docker compose logs -f zim-mcp-http
+docker compose logs -f zim-mcp-sse
 ```
 
-By default, the Python package will run in `stdio` mode. Because it's using the standard input and output streams, it will look like the tool is hanging without any output, but this is expected.
-
-### Streamable HTTP
-
-Streamable HTTP enables streaming responses over JSON RPC via HTTP POST requests. See the [spec](https://modelcontextprotocol.io/specification/draft/basic/transports#streamable-http) for more details.
-
-By default, the server listens on [127.0.0.1:8000/mcp](https://127.0.0.1/mcp) for client connections. To change any of this, set [FASTMCP_*](https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/server/fastmcp/server.py#L78) environment variables. _The server must be running for clients to connect to it._
-
-#### Python
+### Stopping Services
 
 ```bash
-zim-mcp -t streamable-http
+# Stop all services
+docker compose down
+
+# Stop and remove volumes
+docker compose down -v
 ```
 
-By default, the Python package will run in `stdio` mode, so you will have to include `-t streamable-http`.
+### Managing ZIM Files
 
-### Server-sent events (SSE)
+1.  **Place your ZIM files** in the `./zim_files` directory (or configure a different path in `compose.yaml`).
+
+2.  **The server will automatically discover** all `.zim` files in the directory and subdirectories.
+
+3.  **Restart the container** if you add new ZIM files:
+
+    ```bash
+    docker compose restart
+    ```
+
+### Accessing the Server
+
+The Docker containers expose the following endpoints:
+
+- **HTTP (Streamable)**: `http://localhost:8000/mcp/`
+- **SSE**: `http://localhost:8001/sse`
+- **Health Check (HTTP)**: `http://localhost:8000/health`
+- **Health Check (SSE)**: `http://localhost:8001/health`
+
+You can integrate with OpenWeb-UI, Claude Desktop, or any MCP-compatible client using these endpoints.
+
+### Transport Protocols
+
+The server supports multiple MCP transport protocols:
+
+**Streamable HTTP** (Port 8000 - Recommended)
+
+Enables streaming responses over JSON RPC via HTTP POST requests. See the [spec](https://modelcontextprotocol.io/specification/draft/basic/transports#streamable-http) for more details.
+
+- Endpoint: `http://localhost:8000/mcp/`
+- Best for modern MCP clients
+- Supports full streaming capabilities
+
+**Server-Sent Events (SSE)** (Port 8001 - Legacy)
 
 > [!WARNING]
-> The MCP communiity considers this a legacy transport portcol and is really intended for backwards compatibility. [Streamable HTTP](#streamable-http) is the recommended replacement.
+> The MCP community considers this a legacy transport protocol intended for backwards compatibility. [Streamable HTTP](#streamable-http) is the recommended replacement.
 
-SSE transport enables server-to-client streaming with Server-Send Events for client-to-server and server-to-client communication. See the [spec](https://modelcontextprotocol.io/docs/concepts/transports#server-sent-events-sse) for more details.
+SSE transport enables server-to-client streaming. See the [spec](https://modelcontextprotocol.io/docs/concepts/transports#server-sent-events-sse) for more details.
 
-By default, the server listens on [127.0.0.1:8000/sse](https://127.0.0.1/sse) for client connections. To change any of this, set [FASTMCP_*](https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/server/fastmcp/server.py#L78) environment variables. _The server must be running for clients to connect to it._
-
-#### Python
-
-```bash
-zim-mcp -t sse
-```
-
-By default, the Python package will run in `stdio` mode, so you will have to include `-t sse`.
+- Endpoint: `http://localhost:8001/sse`
+- For legacy clients and Home Assistant
+- Maintained for backwards compatibility
 
 ## Integrations
 
 ### Claude Desktop, Roo Code, etc.
 
-Add the following JSON block to your `claude_desktop_config.json` or `mcp.json` file:
+To integrate with MCP clients, configure them to connect to the HTTP endpoint:
 
-```json
-{
-  "mcpServers": {
-    "zim-mcp": {
-      "command": "uvx",
-      "args": ["zim_mcp", "--transport", "stdio"],
-      "env": {
-        "LOG_LEVEL": "INFO",
-        "ZIM_FILES_DIRECTORY": "~/zim_files"
-      }
-    }
-  }
-}
-```
+- **Endpoint**: `http://localhost:8000/mcp/`
+- **Transport**: HTTP (Streamable)
+
+Refer to your MCP client's documentation for specific configuration instructions for HTTP-based MCP servers.
 
 ## Development
 
@@ -274,5 +272,3 @@ Contributions are welcome! If you want to contribute to the development of the M
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
-
-

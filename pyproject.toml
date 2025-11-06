@@ -4,8 +4,7 @@ version = "0.1.0"
 description = "MCP server providing offline search capabilities through ZIM files"
 readme = "README.md"
 authors = [
-    { name = "mobilemutex" },
-    { name = "joey" },
+    { name = "joeyboey" },
 ]
 requires-python = ">=3.13"
 dependencies = [
