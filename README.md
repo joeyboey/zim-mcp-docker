@@ -20,6 +20,7 @@ An MCP (Model Context Protocol) server that provides offline search and content 
 ### ZIM Sources
 - https://dumps.wikimedia.org/other/kiwix/zim
 - https://download.kiwix.org/zim/
+- https://library.kiwix.org/
 
 ## Getting Started
 
